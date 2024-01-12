@@ -1,0 +1,275 @@
+---
+title: "ML Model"
+author: "huong nguyen"
+date: "2023-10-25"
+output: html_document
+---
+
+```{r}
+# Load some packages for data manipulation: 
+library(tidyverse)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(corrplot)
+library(randomForest)
+library(pROC)
+library(e1071)
+library(reshape2)
+library(caret)
+library(pacman)
+library(ROSE)
+library(Information)
+library(smotefamily)
+library(DMwR2)
+# Import data: 
+dt1 <- read_csv("C:/Users/Nguyen Huong/Downloads/iranian.csv")
+
+dt1$Complains = as.factor(dt1$Complains)
+dt1$Age_Group = as.factor(dt1$Age_Group)
+dt1$Tariff_Plan = as.factor(dt1$Tariff_Plan)
+dt1$Status = as.factor(dt1$Status)
+
+```
+
+```{r}
+#scale
+ "Call_Failure","Subscription_Length","Charge_Amount","Seconds_of_Use", "Frequency_of_use", "Frequency_of_SMS", "Distinct_Called_Numbers", "Age", "Customer_Value")
+
+dt1$Call_Failure = scale(dt1$Call_Failure)
+dt1$Subscription_Length = scale(dt1$Subscription_Length)
+dt1$Charge_Amount = scale(dt1$Charge_Amount)
+dt1$Seconds_of_Use = scale(dt1$Seconds_of_Use)
+dt1$Frequency_of_use = scale(dt1$Frequency_of_use)
+dt1$Frequency_of_SMS = scale(dt1$Frequency_of_SMS)
+dt1$Distinct_Called_Numbers = scale(dt1$Distinct_Called_Numbers)
+dt1$Customer_Value = scale(dt1$Customer_Value)
+
+Churn = dt1$Churn
+attach(dt1)
+
+### Descriptive statistic
+summary(dt1)
+```
+
+# Chia tập dữ liệu train và test:
+```{r echo=TRUE}
+# train 80% - test 20%
+set.seed(123)
+ind <- sample(2, nrow(dt1), replace = TRUE, prob = c(0.8, 0.2))
+train0 <- dt1 [ind == 1, ]
+test <- dt1 [ind == 2, ]
+
+# train = train0
+table(train0$Churn)
+round(prop.table(table(train0$Churn))*100,3)
+
+## oversampling
+table(train0$Churn)
+train = ovun.sample(Churn ~ ., data = train0, method = "over", N = 4220)$data
+
+table(train$Churn)
+Churn = train$Churn
+```
+
+# 1. Logistic
+
+# 1.1. DL thường
+# Chạy mô hình logit cho tập train cho dữ liệu ban đầu
+```{r echo=TRUE}
+logit.model = glm(Churn ~., family = binomial(link = 'logit'), data = train)
+summary(logit.model)
+```
+# Loc bien theo stepwise
+```{r echo=TRUE}
+train.step = step(logit.model, direction = "backward", trace = 0)
+summary(train.step)
+
+# lọc biến có ý nghĩa
+logit.model1 = glm(formula = Churn ~ Call_Failure + Complains + Subscription_Length + Charge_Amount + Frequency_of_use + Frequency_of_SMS + Distinct_Called_Numbers + Status + Customer_Value, family = binomial(link = "logit"), data = train)
+summary(logit.model1)
+```
+#  Kiểm tra mô hình trên tập train cho mô hình logit với dữ liệu ban đầu
+```{r echo=TRUE}
+train.prob <- predict(logit.model1, type = "response")
+train.pred <- ifelse(train.prob > .5, "1", "0")
+table(train.pred, train$Churn)
+```
+# Thực hiện mô hình trên tập test cho mô hình logit với dữ liệu ban đầu
+```{r echo=TRUE}
+logit.pred.prob<- predict(logit.model1, test, type = 'response')
+logit.pred <- as.factor(ifelse(logit.pred.prob > 0.5, 1, 0))
+test$Churn <- as.factor(test$Churn)
+### validation
+caret::confusionMatrix(logit.pred, test$Churn, positive = "1")
+```
+
+# 1.2. DL WOE
+```{r}
+# Tính chỉ số IV của các biến trên tập train
+library(Information)
+library(ROSE)
+
+IV <- Information::create_infotables(data = train, y = "Churn", parallel = FALSE)
+print(IV$Summary)
+```
+
+# Loại các biến có IV nhỏ hơn 0.02
+```{r echo=TRUE}
+# select vars of IV < 0.02
+vars_removed <- IV$Summary %>% as.data.frame %>% 
+                                    subset(IV < 0.02) %>% pull(1)
+vars_removed
+train.removed<- train %>% dplyr::select(-all_of(vars_removed))
+```
+# Bin các biến theo woe:
+```{r echo=TRUE}
+library("scorecard")
+bins <- woebin(train, y = "Churn")
+woebin_plot(bins)
+bins
+```
+
+# chuyen du lieu sang WOE
+```{r echo=TRUE}
+train_woe = woebin_ply(train, bins)
+head(train_woe)
+
+summary(train_woe)
+
+```
+
+# Chạy mô hình logit cho tập train cho dữ liệu đã binning theo WOE
+```{r echo=TRUE}
+logit.model_woe <- glm(Churn ~., family = binomial(link = 'logit'), data = train_woe)
+summary(logit.model_woe)
+```
+# Loc bien theo stepwise
+```{r echo=TRUE}
+logit.model.step_woe <- step(logit.model_woe, direction = "backward", trace = 0)
+summary(logit.model.step_woe)
+```
+#  Kiểm tra mô hình trên tập train cho mô hình logit với dữ liệu đã binning theo WOE
+```{r echo=TRUE}
+train.prob1 <- predict(logit.model.step_woe, type = "response")
+train.pred1 <- ifelse(train.prob > .5, "1", "0")
+table(train.pred1, train$Churn)
+```
+# Thực hiện mô hình trên tập test:
+```{r echo=TRUE}
+test_woe <- woebin_ply(test, bins)
+
+logit.pred.prob_woe <- predict(logit.model.step_woe, test_woe, type = 'response')
+logit.pred_woe <- as.factor(ifelse(logit.pred.prob_woe > 0.5, 1, 0))
+test_woe$Churn <- as.factor(test_woe$Churn)
+### validation
+caret::confusionMatrix(logit.pred_woe, test_woe$Churn, positive = "1")
+
+```
+
+
+# 2. Random Forest
+```{r}
+train$Churn = as.factor(train$Churn)
+test$Churn = as.factor(test$Churn)
+
+rf.model = randomForest(Churn ~ ., data = train, mtry = 13, importance=TRUE, ntree = 2000)
+predict.test = predict(rf.model, newdata = test)
+
+caret::confusionMatrix(predict.test, test$Churn,  positive = "1")
+
+
+#Evaluate variable importance
+importance(rf.model)
+varImpPlot(rf.model)
+```
+
+
+# 3. Naive Bayes
+```{r}
+NBClassifier = naiveBayes(Churn ~., data = train)
+NBClassifier
+
+# Predict using Naive Bayes
+NB.predict = predict(NBClassifier,test)
+caret::confusionMatrix(NB.predict , test$Churn, positive = "1")
+```
+
+# 4. XGBoost
+
+```{r}
+train_x = train %>% select(-Churn)
+train_label = as.numeric(train$Churn) - 1
+
+test_x = test %>% select(-Churn)
+test_label = as.numeric(test$Churn) - 1
+
+
+## Create sparse matrices for test and train sets.
+train_sparse = sparse.model.matrix(Churn ~., data = train)[,-1] #[,-1]: loại bỏ cột đầu tiên trong sparse.model.matrix là cột intercept
+test_sparse = sparse.model.matrix(Churn ~., data = test)[,-1]
+
+## Create a xgboost model
+xgbModel = xgboost(data = train_sparse, 
+                    label = train_label,
+                    nrounds = 100,
+                    max_depth = 5,
+                    eta = 0.1,
+                    objective = "binary:logistic")
+
+importance <- xgb.importance(model = xgbModel)
+xgb.plot.importance(importance)
+
+##Make predictions on test data 
+predicted1 <- predict(xgbModel, test_sparse)
+predicted2 <- ifelse(predicted1 > 0.5 , 1,0)
+
+##Confusion matrix
+confusionMatrix(table(predicted = predicted2, actual = test_label), positive = "1")
+```
+
+# SVM
+```{r}
+## tuyến tính
+svm.model <- svm(Churn ~ ., data = train)
+svm.pred <- predict(svm.model, newdata = test)
+
+caret::confusionMatrix(svm.pred , test$Churn, positive = "1")
+```
+
+
+# AUC 
+```{r}
+lgt1.roc = roc(response = test$Churn, predictor = as.numeric(logit.pred))
+lgt2.roc = roc(response = test$Churn, predictor = as.numeric(logit.pred_woe))
+
+rf.roc <- roc(response = test$Churn, predictor = as.numeric(predict.test))
+
+nb.roc <- roc(response = test$Churn, predictor = as.numeric(NB.predict))
+
+xgb.roc <- roc(response = test$Churn, predictor = as.numeric(predicted2))
+
+svm.roc <- roc(response = test$Churn, predictor = as.numeric(svm.pred))
+
+# Tạo bề mặt vẽ mới
+plot.new()
+
+# Vẽ đường ROC và tính AUC
+plot(lgt1.roc, col = "blue")
+text(0.6, 0.2, paste("AUC = ", round(auc(lgt1.roc), 2)), col = "blue")
+
+plot(lgt2.roc, col = "red")
+text(0.6, 0.2, paste("AUC = ", round(auc(lgt2.roc), 2)), col = "blue")
+
+plot(rf.roc, col = "red")
+text(0.6, 0.2, paste("AUC = ", round(auc(rf.roc), 2)), col = "red")
+
+plot(nb.roc, col = "green")
+text(0.6, 0.2, paste("AUC = ", round(auc(nb.roc), 2)), col = "green")
+
+plot(xgb.roc, col = "yellow")
+text(0.6, 0.2, paste("AUC = ", round(auc(xgb.roc), 2)), col = "yellow")
+
+plot(svm.roc, col = "pink")
+text(0.6, 0.2, paste("AUC = ", round(auc(svm.roc), 2)), col = "pink")
+```
