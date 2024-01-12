@@ -1,0 +1,175 @@
+---
+title: "Untitled"
+author: "huong nguyen"
+date: "3/29/2023"
+output: html_document
+---
+
+```{r}
+library(foreign)
+library(car)
+library(lmtest)
+library(zoo)
+library(sandwich)
+library(survival)
+library(AER)
+library(stargazer)
+library(tidyverse)
+library(plyr)
+library(ggplot2)
+library(caret)
+library(caTools)
+library(Metrics)
+library(TTR)
+library(tseries)
+library(urca)
+library(forecast)
+```
+
+```{r}
+ts(vnd_dt, start=c(2010,1), frequency=4)
+dtty=vnd_dt$DT
+dtty <-ts(dtty,start=c(2010,1),frequency=4)
+plot.ts(dtty)
+##tạo biến giả mùa vụ theo quý
+s1<-c(rep(c(1,0,0,0),12))
+s2<-c(rep(c(0,1,0,0),12))
+s3<-c(rep(c(0,0,1,0),12))
+s4<-c(rep(c(0,0,0,1),12))
+## tạo biến xu thế thời gian 
+time <-seq_along(dtty)
+
+length(dtty)
+```
+
+##mô hình 1: linear-linear
+```{r}
+reg1 <- lm(dtty~time)
+summary(reg1)
+
+mape(dtty, fitted(reg1))
+dttyf1 <- ts(fitted(reg1), start = c(2010,1), frequency = 4)
+plot.ts(dtty)
+lines(dttyf1, col = "red")
+```
+
+##Mo hinh 2: linear-log
+```{r}
+reg2 = lm(dtty~log(time))
+summary(reg2)
+
+mape(dtty, fitted(reg2))
+
+dttf2 <- ts(fitted(reg2), start = c(2010,1), frequency = 4)
+plot.ts(dtt)
+lines(dttf2, col = "blue")
+
+```
+
+##mô hình 3: log-linear
+```{r}
+plot.ts(dtt)
+reg3 <- lm(log(dtty)~time)
+summary(reg3)
+
+
+dttf3 <- ts(fitted(reg3), start = c(2010,1), frequency = 4)
+plot.ts(dtt)
+lines(dttf3, col = "green")
+```
+
+##mô hình 4: log-log
+```{r}
+
+reg4 <- lm(log(dtty)~log(time))
+summary(reg4)
+
+mape(dtty, fitted(reg4))
+
+
+dttf4 <- ts(fitted(reg4), start = c(2010,1), frequency = 4)
+plot.ts(dtt)
+lines(dttf4, col = "green")
+```
+
+##mô hình 5: xu the tgian tuyen tinh + mua vu dang cong
+```{r}
+reg5 <- lm(dtty~time+s2+s3+s4)
+summary(reg5)
+
+mape(dtty, fitted(reg5))
+
+dttf5 <- ts(fitted(reg5), start = c(2010,1), frequency = 4)
+plot.ts(dtt)
+lines(dttf5, col = "green")
+```
+
+##mô hình 6: xu the tgian tuyen tinh + mua vu dang nhan
+```{r}
+reg6 <- lm(dtty~time+time*s2+time*s3+time*s4)
+summary(reg6)
+
+mape(dtty, fitted(reg6))
+
+dttf6 <- ts(fitted(reg6), start = c(2010,1), frequency = 4)
+plot.ts(dtt)
+lines(dttf6, col = "green")
+```
+
+##mô hình 7: xu the tgian ko tuyen tinh + mua vu dang cong
+```{r}
+reg7 <- lm(log(dtty)~time+s2+s3+s4)
+summary(reg7)
+mape(dtty, fitted(reg7))
+
+dttf7 <- ts(fitted(reg7), start = c(2010,1), frequency = 4)
+plot.ts(dtt)
+lines(dttf7, col = "green")
+```
+
+##mô hình 8: xu the tgian ko tuyen tinh + mua vu dang nhan
+```{r}
+reg8 <- lm(log(dtty)~time+time*s2+time*s3+time*s4)
+summary(reg8)
+
+mape(dtty, fitted(reg8))
+
+dttf8 <- ts(fitted(reg8), start = c(2010,1), frequency = 4)
+plot.ts(dtt)
+lines(dttf8, col = "green")
+```
+
+##mô hình 9: Holt Winter co mua vu dang cong
+```{r}
+reg9<-HoltWinters(dtty,seasonal="a") #a=additive
+reg9
+mape(dtty, fitted(reg9))
+
+#dự báo holt-wintersadd
+fs.a= forecast:::forecast.HoltWinters(reg9, h=8)
+fs.a
+
+```
+
+##mô hình 10: Holt Winter co mua vu dang nhan
+```{r}
+reg10<-HoltWinters(dtt,seasonal="m") 
+reg10
+
+mape(dtt, fitted(reg10))
+
+#dự báo holt-wintersadd
+
+```
+
+
+##MAPE các mô hình
+```{r}
+DT22=vnd_dt22$DT
+library(readxl)
+vnd_mh10 <- read_excel("C:/Users/Nguyen Huong/Downloads/forecast_VND_22.xlsx", 
+    sheet = "MH10")
+
+rmse(DT22,vnd_mh10$DT)
+mape(DT22,vnd_mh1$DT)
+```
